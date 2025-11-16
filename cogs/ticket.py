@@ -1,11 +1,12 @@
 import discord
 from discord.ext import commands
 from discord.ui import View, Button
+import config
 
-# Replace with your actual values
-TICKET_CATEGORY_ID = 1439655079127814274  # <-- SET THIS
-STAFF_ROLE_ID = 1438950739664830534        # <-- SET THIS
-TRANSCRIPT_LOG_CHANNEL_ID = 1439656270000033944  # <-- SET THIS
+TICKET_CATEGORY_ID = config.TICKET_CATEGORY_ID
+STAFF_ROLE_ID = config.STAFF_ROLE_ID
+TRANSCRIPT_LOG_CHANNEL_ID = config.TRANSCRIPT_LOG_CHANNEL_ID
+TICKET_PANEL_CHANNEL_ID = config.TICKET_PANEL_CHANNEL_ID
 
 # Track active tickets per user
 active_tickets = {}
