@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord.ui import View, Button, Modal, TextInput
 import io
 
-# Use provided server IDs
+# IDs for your server
 TICKET_CATEGORY_ID = 1439655079127814274
 STAFF_ROLE_ID = 1438950739664830534
 TRANSCRIPT_LOG_CHANNEL_ID = 1439656270000033944
@@ -11,6 +11,8 @@ TICKET_PANEL_CHANNEL_ID = 1439589764222423160
 
 # Track active tickets per user
 active_tickets = {}
+
+# ----------------- Views -----------------
 
 class TicketButton(View):
     def __init__(self):
@@ -25,7 +27,9 @@ class TicketButton(View):
         await self.create_ticket(interaction, "order")
 
     async def create_ticket(self, interaction: discord.Interaction, ticket_type: str):
+        # Show modal to ask the issue
         await interaction.response.send_modal(TicketIssueModal(ticket_type))
+
 
 class TicketIssueModal(Modal, title="Describe Your Issue"):
     def __init__(self, ticket_type):
@@ -72,6 +76,7 @@ class TicketIssueModal(Modal, title="Describe Your Issue"):
         await channel.send(f"**New {self.ticket_type.capitalize()} Ticket**\n**User:** {user.mention}\n**Issue:** {self.issue.value}")
         await interaction.response.send_message(f"Your {self.ticket_type} ticket has been created: {channel.mention}", ephemeral=True)
 
+
 class ClaimTicketButton(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -103,6 +108,7 @@ class ClaimTicketButton(View):
         await channel.send(f"🔒 Ticket has been claimed by {interaction.user.mention} and locked.")
         await interaction.response.send_message("You claimed this ticket.", ephemeral=True)
 
+
 class CloseTicketButton(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -118,6 +124,7 @@ class CloseTicketButton(View):
 
         await interaction.response.send_message("Closing ticket in 5 seconds...", ephemeral=True)
 
+        # Create transcript
         transcript_text = f"Transcript for ticket: {channel.name}\n\n"
         messages = [msg async for msg in channel.history(limit=None, oldest_first=True)]
         for msg in messages:
@@ -133,35 +140,44 @@ class CloseTicketButton(View):
                 del active_tickets[uid]
                 break
 
-        await discord.utils.sleep_until(discord.utils.utcnow() + discord.utils.timedelta(seconds=5))
         await channel.delete()
+
+
+# ----------------- Cog -----------------
 
 class TicketCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-@commands.Cog.listener()
-async def on_ready(self):
-    self.bot.add_view(TicketButton())
-    self.bot.add_view(ClaimTicketButton())
-    self.bot.add_view(CloseTicketButton())
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # Register persistent views
+        self.bot.add_view(TicketButton())
+        self.bot.add_view(ClaimTicketButton())
+        self.bot.add_view(CloseTicketButton())
 
-    # Send the ticket panel automatically
-    await self.send_ticket_panel()
+        # Send the ticket panel
+        await self.send_ticket_panel()
 
-async def send_ticket_panel(self):
-    await self.bot.wait_until_ready()  # Ensure bot is fully ready
-    try:
-        channel = await self.bot.fetch_channel(TICKET_PANEL_CHANNEL_ID)
-        if channel:
+    async def send_ticket_panel(self):
+        await self.bot.wait_until_ready()
+        try:
+            channel = self.bot.get_channel(TICKET_PANEL_CHANNEL_ID)
+            if channel is None:
+                channel = await self.bot.fetch_channel(TICKET_PANEL_CHANNEL_ID)
+            if channel is None:
+                print(f"Ticket panel channel not found: {TICKET_PANEL_CHANNEL_ID}")
+                return
+
             embed = discord.Embed(
                 title="Support Tickets",
                 description="Click the button below to open a ticket.",
                 color=discord.Color.blue()
             )
             await channel.send(embed=embed, view=TicketButton())
-    except Exception as e:
-        print(f"Could not send ticket panel: {e}")
+            print(f"Sent ticket panel to {channel.name} ({channel.id})")
+        except Exception as e:
+            print("Error sending ticket panel:", e)
 
     @commands.command(name="ticketpanel")
     @commands.has_permissions(administrator=True)
@@ -172,6 +188,7 @@ async def send_ticket_panel(self):
             color=discord.Color.blue()
         )
         await ctx.send(embed=embed, view=TicketButton())
+
 
 async def setup(bot):
     await bot.add_cog(TicketCog(bot))
