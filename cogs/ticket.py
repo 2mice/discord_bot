@@ -2,15 +2,20 @@ import discord
 from discord.ext import commands
 from discord.ui import View, Button, Modal, TextInput
 import io
+import asyncio
+import config
 
-# Names for auto-created channels / category
+# Server-specific IDs
+MAIN_GUILD_ID = 1438946135871062199
+STAFF_ROLE_ID = 1438950739664830534  # Staff role
 TICKET_CATEGORY_NAME = "Tickets"
 TICKET_PANEL_NAME = "ticket-panel"
 TRANSCRIPT_CHANNEL_NAME = "ticket-transcripts"
-STAFF_ROLE_ID = 1438950739664830534  # Staff role ID
 
 # Track active tickets per user
 active_tickets = {}
+
+# ----------------- Views -----------------
 
 class TicketButton(View):
     def __init__(self):
@@ -26,6 +31,7 @@ class TicketButton(View):
 
     async def create_ticket(self, interaction: discord.Interaction, ticket_type: str):
         await interaction.response.send_modal(TicketIssueModal(ticket_type))
+
 
 class TicketIssueModal(Modal, title="Describe Your Issue"):
     def __init__(self, ticket_type):
@@ -45,12 +51,17 @@ class TicketIssueModal(Modal, title="Describe Your Issue"):
         guild = interaction.guild
         user = interaction.user
 
-        # Find ticket category
+        # Find or create ticket category
         category = discord.utils.get(guild.categories, name=TICKET_CATEGORY_NAME)
         if not category:
             category = await guild.create_category(TICKET_CATEGORY_NAME)
 
-        # Create overwrites
+        # Prevent multiple tickets
+        if user.id in active_tickets:
+            await interaction.response.send_message("You already have an open ticket!", ephemeral=True)
+            return
+
+        # Overwrites
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
@@ -59,16 +70,17 @@ class TicketIssueModal(Modal, title="Describe Your Issue"):
 
         # Create ticket channel
         channel = await guild.create_text_channel(
-            name=f"{ticket_type}-ticket-{user.name}-{user.discriminator}",
+            name=f"{self.ticket_type}-ticket-{user.name}-{user.discriminator}",
             category=category,
             overwrites=overwrites,
-            topic=f"{ticket_type.capitalize()} ticket for {user} (ID: {user.id})"
+            topic=f"{self.ticket_type.capitalize()} ticket for {user} (ID: {user.id})"
         )
 
         active_tickets[user.id] = channel.id
 
-        await channel.send(f"**New {ticket_type.capitalize()} Ticket**\n**User:** {user.mention}\n**Issue:** {self.issue.value}")
-        await interaction.response.send_message(f"Your {ticket_type} ticket has been created: {channel.mention}", ephemeral=True)
+        await channel.send(f"**New {self.ticket_type.capitalize()} Ticket**\n**User:** {user.mention}\n**Issue:** {self.issue.value}")
+        await interaction.response.send_message(f"Your {self.ticket_type} ticket has been created: {channel.mention}", ephemeral=True)
+
 
 class ClaimTicketButton(View):
     def __init__(self):
@@ -101,6 +113,7 @@ class ClaimTicketButton(View):
         await channel.send(f"🔒 Ticket has been claimed by {interaction.user.mention} and locked.")
         await interaction.response.send_message("You claimed this ticket.", ephemeral=True)
 
+
 class CloseTicketButton(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -110,7 +123,7 @@ class CloseTicketButton(View):
         channel = interaction.channel
         guild = interaction.guild
 
-        if channel.category.name != TICKET_CATEGORY_NAME:
+        if not channel.category or channel.category.name != TICKET_CATEGORY_NAME:
             await interaction.response.send_message("This is not a ticket channel.", ephemeral=True)
             return
 
@@ -137,36 +150,38 @@ class CloseTicketButton(View):
 
         await channel.delete()
 
+
+# ----------------- Cog -----------------
+
 class TicketCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # Register persistent views
         self.bot.add_view(TicketButton())
         self.bot.add_view(ClaimTicketButton())
         self.bot.add_view(CloseTicketButton())
-
-        # Ensure panel channel exists
         await self.ensure_panel_channel()
 
     async def ensure_panel_channel(self):
         await self.bot.wait_until_ready()
-        guild = self.bot.guilds[0]  # assumes bot is in one guild
+        guild = self.bot.get_guild(MAIN_GUILD_ID)
+        if not guild:
+            print("Guild not found")
+            return
 
-        # Ensure ticket panel channel exists
         panel_channel = discord.utils.get(guild.text_channels, name=TICKET_PANEL_NAME)
         if not panel_channel:
             panel_channel = await guild.create_text_channel(TICKET_PANEL_NAME)
 
-        # Send ticket panel embed
         embed = discord.Embed(
             title="Support Tickets",
             description="Click the button below to open a ticket.",
             color=discord.Color.blue()
         )
         await panel_channel.send(embed=embed, view=TicketButton())
+        print(f"Ticket panel sent to channel: {panel_channel.name} ({panel_channel.id})")
 
     @commands.command(name="ticketpanel")
     @commands.has_permissions(administrator=True)
@@ -177,6 +192,7 @@ class TicketCog(commands.Cog):
             color=discord.Color.blue()
         )
         await ctx.send(embed=embed, view=TicketButton())
+
 
 async def setup(bot):
     await bot.add_cog(TicketCog(bot))
