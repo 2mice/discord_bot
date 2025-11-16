@@ -14,23 +14,29 @@ class TicketButton(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.green, custom_id="open_ticket_button")
-    async def open_ticket(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="Open Report Ticket", style=discord.ButtonStyle.red, custom_id="open_report_ticket")
+    async def open_report(self, interaction: discord.Interaction, button: Button):
+        await self.create_ticket(interaction, "report")
+
+    @discord.ui.button(label="Open Order Ticket", style=discord.ButtonStyle.green, custom_id="open_order_ticket")
+    async def open_order(self, interaction: discord.Interaction, button: Button):
+        await self.create_ticket(interaction, "order")
+
+    async def create_ticket(self, interaction: discord.Interaction, ticket_type: str):
+        # Show modal instead of creating immediately
+        await interaction.response.send_modal(TicketIssueModal(ticket_type))
+(self, interaction: discord.Interaction, ticket_type: str):
         guild = interaction.guild
         user = interaction.user
 
         # Check if user already has a ticket
         if user.id in active_tickets:
-            await interaction.response.send_message(
-                "You already have an open ticket!", ephemeral=True
-            )
+            await interaction.response.send_message("You already have an open ticket!", ephemeral=True)
             return
 
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if not category:
-            await interaction.response.send_message(
-                "Ticket category not found. Contact staff.", ephemeral=True
-            )
+            await interaction.response.send_message("Ticket category not found. Contact staff.", ephemeral=True)
             return
 
         overwrites = {
@@ -40,22 +46,68 @@ class TicketButton(View):
         }
 
         channel = await guild.create_text_channel(
-            name=f"ticket-{user.name}-{user.discriminator}",
+            name=f"{ticket_type}-ticket-{user.name}-{user.discriminator}",
             category=category,
             overwrites=overwrites,
-            topic=f"Ticket for {user} (ID: {user.id})"
+            topic=f"{ticket_type.capitalize()} ticket for {user} (ID: {user.id})"
         )
 
-        # Save active ticket
         active_tickets[user.id] = channel.id
 
-        await channel.send(f"Hello {user.mention}, please describe your issue.")
-        await interaction.response.send_message(
-            f"Your ticket has been created: {channel.mention}", ephemeral=True
+        await channel.send(f"Hello {user.mention}, this is your **{ticket_type} ticket**. Please describe your issue.")
+        await interaction.response.send_message(f"Your {ticket_type} ticket has been created: {channel.mention}", ephemeral=True)
+
+
+class TicketIssueModal(discord.ui.Modal, title="Describe Your Issue"):
+    def __init__(self, ticket_type):
+        super().__init__()
+        self.ticket_type = ticket_type
+
+        self.issue = discord.ui.TextInput(
+            label="What is the issue?",
+            placeholder="Describe your problem in detail...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=500
+        )
+        self.add_item(self.issue)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        user = interaction.user
+
+        # Block if already has a ticket
+        if user.id in active_tickets:
+            await interaction.response.send_message("You already have an open ticket!", ephemeral=True)
+            return
+
+        category = guild.get_channel(TICKET_CATEGORY_ID)
+        if not category:
+            await interaction.response.send_message("Ticket category not found.", ephemeral=True)
+            return
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True)
+        }
+
+        channel = await guild.create_text_channel(
+            name=f"{self.ticket_type}-ticket-{user.name}-{user.discriminator}",
+            category=category,
+            overwrites=overwrites,
+            topic=f"{self.ticket_type.capitalize()} ticket for {user} (ID: {user.id})"
         )
 
+        active_tickets[user.id] = channel.id
 
-class ClaimTicketButton(View):
+        await channel.send(f"**New {self.ticket_type.capitalize()} Ticket**
+**User:** {user.mention}
+**Issue:** {self.issue.value}")
+        await interaction.response.send_message(f"Your {self.ticket_type} ticket has been created: {channel.mention}", ephemeral=True)
+
+
+class ClaimTicketButton(View):(View):
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -149,9 +201,35 @@ class TicketCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # Register persistent views so buttons survive restarts
+        self.bot.add_view(TicketButton())
+        self.bot.add_view(ClaimTicketButton())
+
+        # Automatically send Open Ticket button to the specified channel
+        channel = self.bot.get_channel(1439589764222423160)
+        if channel:
+            embed = discord.Embed(
+                title="Support Tickets",
+                description="Click the button below to open a ticket.",
+                color=discord.Color.blue()
+            )
+            try:
+                await channel.send(embed=embed, view=TicketButton())
+            except:
+                pass
+
     @commands.command(name="ticketpanel")
     @commands.has_permissions(administrator=True)
     async def ticketpanel(self, ctx):
+        """Creates the ticket panel with button manually"""
+        embed = discord.Embed(
+            title="Support Tickets",
+            description="Click the button below to open a ticket.",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed, view=TicketButton())(self, ctx):
         """Creates the ticket panel with button"""
         embed = discord.Embed(
             title="Support Tickets",
